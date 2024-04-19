@@ -28,9 +28,9 @@ import resource
 import copy
 # from torch import linalg as LA
 
-sys.path.insert(0, "~/anaconda3/envs/diffusion/lib/python3.8/site-packages/click")
+# sys.path.insert(0, "~/anaconda3/envs/diffusion/lib/python3.8/site-packages/click")
 
-"https://github.com/ajbrock/BigGAN-PyTorch/blob/master/utils.py"
+# "https://github.com/ajbrock/BigGAN-PyTorch/blob/master/utils.py"
 
 
 def ema_update(source, target, decay=0.99, start_itr=20, itr=None):
@@ -56,7 +56,7 @@ def init_seed(seed):
     random.seed(seed)
     # torch.backends.cudnn.enabled = True
     # training speed is too slow if set to True
-    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.deterministic = False
 
     # on cuda 11 cudnn8, the default algorithm is very slow
     # unlike on cuda 10, the default works well
@@ -111,7 +111,7 @@ def get_parser():
     parser.add_argument(
         '--save-score',
         type=str2bool,
-        default=True,
+        default=False,
         help='if ture, the classification score will be stored')
 
     # gra
@@ -137,7 +137,7 @@ def get_parser():
     parser.add_argument(
         '--save-epoch',
         type=int,
-        default=10,
+        default=40,
         help='the start epoch to save model (#iteration)')
     parser.add_argument(
         '--eval-interval',
@@ -474,9 +474,10 @@ class Processor():
         # torch.autograd.set_detect_anomaly(True)
 
         soft_label_emma = 0
-        for batch_idx, (data, label, index) in enumerate(process):
+        for batch_idx, (joint, data, label, index) in enumerate(process):
             self.global_step += 1
             with torch.no_grad():
+                joint = joint.float().cuda(self.output_device)
                 data = data.float().cuda(self.output_device)
                 label = label.long().cuda(self.output_device)
             timer['dataloader'] += self.split_time()
@@ -500,8 +501,8 @@ class Processor():
 
             with torch.cuda.amp.autocast(enabled=use_amp):
 
-                output, z = self.model(data, F.one_hot(label, num_classes=self.model.module.num_class))
-                # output, z = self.model(data, F.one_hot(label, num_classes=self.model.num_class))
+                # output, z = self.model(data, F.one_hot(label, num_classes=self.model.module.num_class),joint)
+                output, z = self.model(data, F.one_hot(label, num_classes=self.model.num_class),joint)
 
                 ## for mmd loss
                 # output, y, z = self.model(data, F.one_hot(label, num_classes=self.model.module.num_class))
@@ -577,24 +578,25 @@ class Processor():
             pred_list_ema = []
             step = 0
             process = tqdm(self.data_loader[ln], ncols=40)
-            for batch_idx, (data, label, index) in enumerate(process):
+            for batch_idx, (joint, data, label, index) in enumerate(process):
                 label_list.append(label)
                 if arg.ema:
                     label_list_ema.append(label)
                 with torch.no_grad():
+                    joint = joint.float().cuda(self.output_device)
                     data = data.float().cuda(self.output_device)
                     label = label.long().cuda(self.output_device)
                     # for mmd
-                    output, y = self.model(data, F.one_hot(label, num_classes=self.model.module.num_class))
-                    # output, y = self.model(data, F.one_hot(label, num_classes=self.model.num_class))
+                    # output, y = self.model(data, F.one_hot(label, num_classes=self.model.module.num_class),joint)
+                    output, y = self.model(data, F.one_hot(label, num_classes=self.model.num_class), joint)
 
 
 
                     if arg.ema:
                         self.model_ema.cuda(self.output_device)
-                        output_ema, z_ema = self.model_ema(data, F.one_hot(label, num_classes=self.model.module.num_class))
-                        # output_ema, z_ema = self.model_ema(data,
-                        #                                    F.one_hot(label, num_classes=self.model.num_class))
+                        # output_ema, z_ema = self.model_ema(data, F.one_hot(label, num_classes=self.model.module.num_class))
+                        output_ema, z_ema = self.model_ema(data,
+                                                           F.one_hot(label, num_classes=self.model.num_class))
                     loss = self.loss(output, label)
                     if arg.ema:
                         loss_ema = self.loss(output_ema, label)
